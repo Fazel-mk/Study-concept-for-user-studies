@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Study Results — Group Comparison</title>
+  <style>
+    body {
+      font-family: -apple-system, Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+      color: #222;
+    }
+    h1 { font-size: 22px; }
+    h2 { font-size: 17px; margin-top: 28px; }
+    .controls {
+      background: #f5f5f5;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    .controls button, .controls label.filebtn {
+      display: inline-block;
+      background: #2e6fb7;
+      color: #fff;
+      border: none;
+      padding: 9px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .controls button.secondary { background: #6c757d; }
+    .controls input[type=file] { display: none; }
+    .hint { color: #666; font-size: 13px; margin-top: 8px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: center; }
+    th { background: #f0f4f8; }
+    .feedback-key { color: #2e6fb7; font-weight: bold; }
+    .nofeedback-key { color: #e08a1e; font-weight: bold; }
+    #status { font-size: 14px; margin: 10px 0; }
+    .metric-select { margin: 8px 0; font-size: 14px; }
+    svg { background: #fff; border: 1px solid #eee; border-radius: 8px; }
+    .empty { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>Study Results — Feedback vs. No-Feedback</h1>
+  <p class="hint">
+    Compares the two groups on participants' answer performance, showing the
+    group <strong>mean</strong> with <strong>±1 standard deviation</strong> error bars.
+  </p>
+
+  <div class="controls">
+    <button id="useLocalBtn">Use this browser's data</button>
+    <label class="filebtn" for="fileInput">Load CSV file(s)…</label>
+    <input type="file" id="fileInput" accept=".csv,text/csv" multiple />
+    <button id="demoBtn">Load demo data</button>
+    <button id="clearBtn" class="secondary">Clear</button>
+    <div class="metric-select">
+      Metric:
+      <select id="metricSelect">
+        <option value="accuracy">First-attempt accuracy (proportion correct)</option>
+        <option value="correctCount">Correct answers per exercise (count)</option>
+      </select>
+    </div>
+    <div class="hint">
+      Tip: each participant exports a CSV with the "Download study data" button.
+      Select all of them here to pool results. You can also click
+      "Use this browser's data" to chart the current device only.
+    </div>
+  </div>
+
+  <div id="status"></div>
+
+  <h2>Comparison chart</h2>
+  <div id="chart"></div>
+
+  <h2>Summary statistics</h2>
+  <div id="tableWrap"></div>
+
+  <script>
+    const GROUPS = ["feedback", "nofeedback"];
+    const COLORS = { feedback: "#2e6fb7", nofeedback: "#e08a1e" };
+    const LABELS = { feedback: "Feedback", nofeedback: "No feedback" };
+
+    let rows = []; // accumulated raw log rows from all sources
+
+    // ---------- CSV parsing (handles quoted fields) ----------
+    function parseCSV(text) {
+      const records = [];
+      let field = "", record = [], inQuotes = false;
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (inQuotes) {
+          if (c === '"') {
+            if (text[i + 1] === '"') { field += '"'; i++; }
+            else inQuotes = false;
+          } else field += c;
+        } else {
+          if (c === '"') inQuotes = true;
+          else if (c === ",") { record.push(field); field = ""; }
+          else if (c === "\n") { record.push(field); records.push(record); field = ""; record = []; }
+          else if (c === "\r") { /* ignore */ }
+          else field += c;
+        }
+      }
+      if (field.length > 0 || record.length > 0) { record.push(field); records.push(record); }
+      if (records.length === 0) return [];
+      const headers = records[0];
+      return records.slice(1)
+        .filter(r => r.length > 1 || (r.length === 1 && r[0] !== ""))
+        .map(r => {
+          const o = {};
+          headers.forEach((h, idx) => { o[h.trim()] = (r[idx] !== undefined ? r[idx] : ""); });
+          return o;
+        });
+    }
+
+    function isTrue(v) { return v === true || v === "true" || v === "TRUE" || v === "1"; }
+
+    // ---------- Aggregation ----------
+    function computePerParticipant(metric) {
+      // map participantId -> { group, firstAttempts, firstCorrect, exercises:{page:correctCount} }
+      const byP = {};
+      for (const r of rows) {
+        const qid = r.questionId || "";
+        if (qid.indexOf("__") === 0) continue; // skip marker rows
+        const pid = r.participantId || "(unknown)";
+        const group = (r.group || "").trim();
+        if (GROUPS.indexOf(group) === -1) continue;
+        if (!byP[pid]) byP[pid] = { group, firstAttempts: 0, firstCorrect: 0, exercises: {} };
+        if (isTrue(r.isFirstAttempt)) {
+          byP[pid].firstAttempts++;
+          if (isTrue(r.isCorrect)) {
+            byP[pid].firstCorrect++;
+            const pg = r.page || "(page)";
+            byP[pid].exercises[pg] = (byP[pid].exercises[pg] || 0) + 1;
+          } else {
+            const pg = r.page || "(page)";
+            if (!(pg in byP[pid].exercises)) byP[pid].exercises[pg] = 0;
+          }
+        }
+      }
+      // produce one value per participant for the chosen metric
+      const out = { feedback: [], nofeedback: [] };
+      for (const pid in byP) {
+        const p = byP[pid];
+        if (p.firstAttempts === 0) continue;
+        let value;
+        if (metric === "accuracy") {
+          value = p.firstCorrect / p.firstAttempts;
+        } else {
+          const counts = Object.values(p.exercises);
+          value = counts.length ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
+        }
+        out[p.group].push(value);
+      }
+      return out;
+    }
+
+    function mean(a) { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; }
+    function std(a) {
+      if (a.length < 2) return 0;
+      const m = mean(a);
+      const v = a.reduce((s, x) => s + (x - m) * (x - m), 0) / (a.length - 1);
+      return Math.sqrt(v);
+    }
+
+    // ---------- Rendering ----------
+    function render() {
+      const metric = document.getElementById("metricSelect").value;
+      const perP = computePerParticipant(metric);
+      const stats = GROUPS.map(g => ({
+        group: g,
+        n: perP[g].length,
+        mean: mean(perP[g]),
+        std: std(perP[g]),
+        values: perP[g],
+      }));
+
+      drawChart(stats, metric);
+      drawTable(stats, metric);
+    }
+
+    function fmt(x, metric) {
+      if (metric === "accuracy") return (x * 100).toFixed(1) + "%";
+      return x.toFixed(2);
+    }
+
+    function drawChart(stats, metric) {
+      const W = 560, H = 360, padL = 60, padR = 20, padT = 40, padB = 60;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+
+      let yMax;
+      if (metric === "accuracy") yMax = 1;
+      else {
+        const top = Math.max(1, ...stats.map(s => s.mean + s.std));
+        yMax = Math.ceil(top);
+      }
+      const yToPx = v => padT + plotH - (v / yMax) * plotH;
+
+      const totalN = stats.reduce((a, s) => a + s.n, 0);
+      const chart = document.getElementById("chart");
+      if (totalN === 0) {
+        chart.innerHTML = '<p class="empty">No data loaded yet. Load CSV file(s) or use this browser\'s data.</p>';
+        return;
+      }
+
+      let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+      // title
+      svg += `<text x="${W / 2}" y="22" text-anchor="middle" font-size="15" font-weight="bold">` +
+        (metric === "accuracy" ? "First-attempt accuracy (mean ± SD)" : "Correct answers / exercise (mean ± SD)") +
+        `</text>`;
+
+      // y gridlines + labels
+      const ticks = 5;
+      for (let t = 0; t <= ticks; t++) {
+        const val = (yMax / ticks) * t;
+        const y = yToPx(val);
+        svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eee" />`;
+        const lbl = metric === "accuracy" ? Math.round(val * 100) + "%" : val.toFixed(1);
+        svg += `<text x="${padL - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#666">${lbl}</text>`;
+      }
+      // axes
+      svg += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#888" />`;
+      svg += `<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="#888" />`;
+
+      // bars
+      const slot = plotW / stats.length;
+      const barW = Math.min(110, slot * 0.5);
+      stats.forEach((s, i) => {
+        const cx = padL + slot * (i + 0.5);
+        const x = cx - barW / 2;
+        const yTop = yToPx(s.mean);
+        const barH = padT + plotH - yTop;
+        svg += `<rect x="${x}" y="${yTop}" width="${barW}" height="${barH}" fill="${COLORS[s.group]}" opacity="0.85" rx="3" />`;
+
+        // value label above bar
+        svg += `<text x="${cx}" y="${yTop - 8}" text-anchor="middle" font-size="13" font-weight="bold">${fmt(s.mean, metric)}</text>`;
+
+        // error bar (±1 SD), clamped to [0, yMax]
+        if (s.n >= 1) {
+          const hi = Math.min(yMax, s.mean + s.std);
+          const lo = Math.max(0, s.mean - s.std);
+          const yHi = yToPx(hi), yLo = yToPx(lo);
+          svg += `<line x1="${cx}" y1="${yHi}" x2="${cx}" y2="${yLo}" stroke="#333" stroke-width="2" />`;
+          svg += `<line x1="${cx - 8}" y1="${yHi}" x2="${cx + 8}" y2="${yHi}" stroke="#333" stroke-width="2" />`;
+          svg += `<line x1="${cx - 8}" y1="${yLo}" x2="${cx + 8}" y2="${yLo}" stroke="#333" stroke-width="2" />`;
+        }
+
+        // x label + n
+        svg += `<text x="${cx}" y="${padT + plotH + 22}" text-anchor="middle" font-size="13">${LABELS[s.group]}</text>`;
+        svg += `<text x="${cx}" y="${padT + plotH + 40}" text-anchor="middle" font-size="11" fill="#666">n = ${s.n}</text>`;
+      });
+
+      svg += `</svg>`;
+      chart.innerHTML = svg;
+    }
+
+    function drawTable(stats, metric) {
+      let html = "<table><tr><th>Group</th><th>Participants (n)</th><th>Mean</th><th>Std. dev.</th></tr>";
+      for (const s of stats) {
+        const key = s.group === "feedback" ? "feedback-key" : "nofeedback-key";
+        html += `<tr><td class="${key}">${LABELS[s.group]}</td><td>${s.n}</td>` +
+          `<td>${s.n ? fmt(s.mean, metric) : "—"}</td>` +
+          `<td>${s.n ? fmt(s.std, metric) : "—"}</td></tr>`;
+      }
+      html += "</table>";
+      document.getElementById("tableWrap").innerHTML = html;
+    }
+
+    function setStatus(msg) { document.getElementById("status").textContent = msg; }
+
+    // ---------- Data sources ----------
+    document.getElementById("useLocalBtn").addEventListener("click", () => {
+      let log;
+      try { log = JSON.parse(localStorage.getItem("studyLog") || "[]"); }
+      catch (e) { log = []; }
+      rows = rows.concat(log);
+      setStatus(`Loaded ${log.length} rows from this browser. Total rows: ${rows.length}.`);
+      render();
+    });
+
+    document.getElementById("fileInput").addEventListener("change", (ev) => {
+      const files = Array.from(ev.target.files || []);
+      let pending = files.length;
+      if (!pending) return;
+      let added = 0;
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const parsed = parseCSV(String(reader.result));
+          rows = rows.concat(parsed);
+          added += parsed.length;
+          if (--pending === 0) {
+            setStatus(`Loaded ${added} rows from ${files.length} file(s). Total rows: ${rows.length}.`);
+            render();
+          }
+        };
+        reader.readAsText(file);
+      });
+      ev.target.value = ""; // allow re-loading same file
+    });
+
+    // Generate realistic multi-participant data for previewing/presenting.
+    function generateDemoData() {
+      const pages = ["addition_exercise.html", "subtraction_exercise.html", "multiplication_Exercise.html"];
+      const qPerPage = 3;
+      // feedback group tends to do a bit better; both have spread.
+      const config = {
+        feedback:   { n: 18, meanP: 0.78, spread: 0.12 },
+        nofeedback: { n: 18, meanP: 0.62, spread: 0.14 },
+      };
+      const demo = [];
+      let pidNum = 1;
+      function clamp(x) { return Math.max(0.05, Math.min(0.98, x)); }
+      // approx normal via sum of uniforms
+      function randNorm() { return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; }
+
+      for (const group of GROUPS) {
+        const cfg = config[group];
+        for (let i = 0; i < cfg.n; i++) {
+          const pid = "DEMO-" + group.slice(0, 2).toUpperCase() + "-" + (pidNum++);
+          const pCorrect = clamp(cfg.meanP + randNorm() * cfg.spread);
+          let secs = 5;
+          for (const page of pages) {
+            for (let q = 1; q <= qPerPage; q++) {
+              const correct = Math.random() < pCorrect;
+              secs += 8 + Math.random() * 20;
+              demo.push({
+                participantId: pid,
+                group: group,
+                page: page,
+                questionId: "q" + q,
+                attemptNumber: "1",
+                selectedValue: correct ? "ans" : "wrong",
+                correctValue: "ans",
+                isCorrect: correct ? "true" : "false",
+                isFirstAttempt: "true",
+                secondsSinceStart: secs.toFixed(1),
+                timestamp: new Date().toISOString(),
+              });
+            }
+            demo.push({
+              participantId: pid, group: group, page: page,
+              questionId: "__exercise_complete__", attemptNumber: "",
+              selectedValue: "", correctValue: "", isCorrect: "",
+              isFirstAttempt: "", secondsSinceStart: secs.toFixed(1),
+              timestamp: new Date().toISOString(),
+            });
+          }
+        }
+      }
+      return demo;
+    }
+
+    document.getElementById("demoBtn").addEventListener("click", () => {
+      const demo = generateDemoData();
+      rows = rows.concat(demo);
+      setStatus(`Loaded ${demo.length} demo rows (36 simulated participants). Total rows: ${rows.length}.`);
+      render();
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      rows = [];
+      setStatus("Cleared all loaded data.");
+      render();
+    });
+
+    document.getElementById("metricSelect").addEventListener("change", render);
+
+    // initial empty state
+    render();
+  </script>
+</body>
+</html>
