@@ -44,6 +44,9 @@ function getStudyGroup() {
 
 const STUDY_GROUP = getStudyGroup();
 const FEEDBACK_ENABLED = STUDY_GROUP === "feedback";
+// The feedback group is the intervention group: when it gets at least this
+// many first-attempt answers wrong in an exercise, a review section is shown.
+const REVIEW_WRONG_THRESHOLD = 2;
 const STUDY_PARTICIPANT_ID = localStorage.getItem("studyParticipantId");
 console.log("[study] participant", STUDY_PARTICIPANT_ID, "group:", STUDY_GROUP);
 
@@ -183,6 +186,7 @@ function checkAnswers(lastPage) {
   // ----- Feedback group: original scoring + pass/fail gating -------------
   let correctCount = 0;
   let totalQuestions = 0;
+  const wrongQuestions = []; // questions missed on the first attempt
 
   for (const questionId in firstAttempts) {
     const selectedAnswerValue = firstAttempts[questionId][0]; // Get the first attempt
@@ -193,6 +197,11 @@ function checkAnswers(lastPage) {
       resultMessage.innerHTML += `<br>Question ${questionId}: Correct`;
     } else if (selectedAnswerValue) {
       resultMessage.innerHTML += `<br>Question ${questionId}: Wrong`;
+      wrongQuestions.push({
+        questionId,
+        selected: selectedAnswerValue,
+        correct: correctAnswer,
+      });
     } else {
       resultMessage.innerHTML += `<br>Question ${questionId}: Not selected`;
     }
@@ -222,9 +231,77 @@ function checkAnswers(lastPage) {
     resultMessage.innerHTML = "No answers were selected.";
   }
 
+  // ----- Intervention: review section when too many answers are wrong -----
+  if (wrongQuestions.length >= REVIEW_WRONG_THRESHOLD) {
+    showReviewSection(dialog, wrongQuestions);
+    logAttempt({
+      participantId: STUDY_PARTICIPANT_ID,
+      group: STUDY_GROUP,
+      page: currentPageName(),
+      questionId: "__review_triggered__",
+      attemptNumber: "",
+      selectedValue: "",
+      correctValue: "",
+      isCorrect: "",
+      isFirstAttempt: wrongQuestions.length, // number of wrong answers
+      secondsSinceStart: studySecondsSinceStart(),
+      timestamp: new Date().toISOString(),
+    });
+  } else {
+    removeReviewSection(dialog);
+  }
+
   addDownloadButton(dialog);
   dialog.showModal();
   wireCloseButton(dialog);
+}
+
+// Builds an in-dialog review panel that lists the missed questions, shows the
+// correct answers, and points the learner to the relevant examples. Only the
+// feedback (intervention) group can reach this, via checkAnswers().
+function showReviewSection(dialog, wrongQuestions) {
+  removeReviewSection(dialog);
+
+  const panel = document.createElement("div");
+  panel.id = "reviewSection";
+  panel.style.cssText =
+    "margin-top:14px;padding:12px 14px;border-left:4px solid #c0392b;" +
+    "background:#fdecea;border-radius:6px;text-align:left;font-size:14px;";
+
+  let html =
+    "<strong>📚 Review (let's go over these)</strong>" +
+    "<p style='margin:6px 0;'>You missed " +
+    wrongQuestions.length +
+    " questions. Review them before reattempting:</p><ul style='margin:6px 0 6px 18px;'>";
+
+  for (const w of wrongQuestions) {
+    const divId = w.questionId.toUpperCase();
+    const qEl = document.querySelector(`#${divId} p`);
+    const qText = qEl ? qEl.textContent.trim() : `Question ${w.questionId}`;
+    html +=
+      "<li style='margin-bottom:6px;'>" +
+      `<div>${qText}</div>` +
+      `<div>Your answer: <span style='color:#c0392b;'>${w.selected}</span> &nbsp;|&nbsp; ` +
+      `Correct answer: <span style='color:#1e8449;'>${w.correct}</span></div>` +
+      "</li>";
+  }
+  html +=
+    "</ul><p style='margin:6px 0;'>Tip: open the worked <em>Example</em> for this " +
+    "topic (button below), then reattempt the test.</p>";
+
+  panel.innerHTML = html;
+
+  const resultMessage = dialog.querySelector("#resultMessage");
+  if (resultMessage) {
+    resultMessage.insertAdjacentElement("afterend", panel);
+  } else {
+    dialog.appendChild(panel);
+  }
+}
+
+function removeReviewSection(dialog) {
+  const existing = dialog.querySelector("#reviewSection");
+  if (existing) existing.remove();
 }
 
 function wireCloseButton(dialog) {
