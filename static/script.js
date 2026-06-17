@@ -25,21 +25,34 @@ function getStudyGroup() {
   const params = new URLSearchParams(window.location.search);
   const forced = params.get("group");
   if (forced === "feedback" || forced === "nofeedback") {
-    localStorage.setItem("studyGroup", forced);
+    // Forcing a *different* group (e.g. while testing both on one browser)
+    // starts a fresh participant, so each group's data is logged under its
+    // own participant ID and binned into the correct group in the dashboard.
+    if (localStorage.getItem("studyGroup") !== forced) {
+      newStudyParticipant(forced);
+    }
   }
 
   let group = localStorage.getItem("studyGroup");
   if (!group) {
     group = Math.random() < 0.5 ? "feedback" : "nofeedback";
-    localStorage.setItem("studyGroup", group);
-    localStorage.setItem(
-      "studyParticipantId",
-      "P-" + Date.now() + "-" + Math.floor(Math.random() * 100000)
-    );
-    localStorage.setItem("studyStart", new Date().toISOString());
-    localStorage.setItem("studyLog", "[]");
+    newStudyParticipant(group);
   }
   return group;
+}
+
+// Begin a new participant in the given group (new ID + start time), without
+// erasing the accumulated study log of previous participants.
+function newStudyParticipant(group) {
+  localStorage.setItem("studyGroup", group);
+  localStorage.setItem(
+    "studyParticipantId",
+    "P-" + Date.now() + "-" + Math.floor(Math.random() * 100000)
+  );
+  localStorage.setItem("studyStart", new Date().toISOString());
+  if (localStorage.getItem("studyLog") === null) {
+    localStorage.setItem("studyLog", "[]");
+  }
 }
 
 const STUDY_GROUP = getStudyGroup();
@@ -49,6 +62,38 @@ const FEEDBACK_ENABLED = STUDY_GROUP === "feedback";
 const REVIEW_WRONG_THRESHOLD = 2;
 const STUDY_PARTICIPANT_ID = localStorage.getItem("studyParticipantId");
 console.log("[study] participant", STUDY_PARTICIPANT_ID, "group:", STUDY_GROUP);
+
+// Facilitator badge: shows the group/participant this page will record as.
+// Only appears when the URL contains ?debug=1, so participants never see it.
+function showStudyDebugBadge() {
+  const params = new URLSearchParams(window.location.search);
+  // ?debug=1 turns the badge on and remembers it across pages; ?debug=0 off.
+  const debugParam = params.get("debug");
+  if (debugParam === "1") localStorage.setItem("studyDebug", "1");
+  else if (debugParam === "0") localStorage.removeItem("studyDebug");
+  if (localStorage.getItem("studyDebug") !== "1") return;
+
+  function inject() {
+    if (document.getElementById("studyDebugBadge")) return;
+    const badge = document.createElement("div");
+    badge.id = "studyDebugBadge";
+    const isFb = STUDY_GROUP === "feedback";
+    badge.style.cssText =
+      "position:fixed;top:8px;right:8px;z-index:99999;" +
+      "font:12px/1.4 -apple-system,Arial,sans-serif;color:#fff;" +
+      "padding:6px 10px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.3);" +
+      "background:" + (isFb ? "#2e6fb7" : "#e08a1e") + ";max-width:220px;";
+    badge.innerHTML =
+      "<strong>Recording as: " + (isFb ? "FEEDBACK" : "NO-FEEDBACK") + "</strong>" +
+      "<div style='font-size:11px;opacity:.9;word-break:break-all;'>" +
+      (STUDY_PARTICIPANT_ID || "(no id)") + "</div>";
+    document.body.appendChild(badge);
+  }
+
+  if (document.body) inject();
+  else document.addEventListener("DOMContentLoaded", inject);
+}
+showStudyDebugBadge();
 
 // ----- Data logging ----------------------------------------------------
 function studySecondsSinceStart() {
