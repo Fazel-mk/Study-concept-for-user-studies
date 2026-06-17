@@ -313,34 +313,80 @@ function showReviewSection(dialog, wrongQuestions) {
     "margin-top:14px;padding:12px 14px;border-left:4px solid #c0392b;" +
     "background:#fdecea;border-radius:6px;text-align:left;font-size:14px;";
 
-  let html =
-    "<strong>📚 Review (let's go over these)</strong>" +
-    "<p style='margin:6px 0;'>You missed " +
+  const heading = document.createElement("strong");
+  heading.textContent = "📚 Review (let's go over these)";
+  panel.appendChild(heading);
+
+  const intro = document.createElement("p");
+  intro.style.margin = "6px 0";
+  intro.textContent =
+    "You missed " +
     wrongQuestions.length +
-    " questions. Review them before reattempting:</p><ul style='margin:6px 0 6px 18px;'>";
+    " questions. Review them before reattempting:";
+  panel.appendChild(intro);
+
+  const ul = document.createElement("ul");
+  ul.style.margin = "6px 0 6px 18px";
+
+  // Spans whose math (\( ... \)) MathJax should render after insertion.
+  const mathSpans = [];
 
   for (const w of wrongQuestions) {
+    const li = document.createElement("li");
+    li.style.marginBottom = "6px";
+
+    // Question: clone the already-rendered node so the math shows exactly as
+    // on the page (instead of the mangled textContent of a typeset element).
+    const qWrap = document.createElement("div");
     const divId = w.questionId.toUpperCase();
     const qEl = document.querySelector(`#${divId} p`);
-    const qText = qEl ? qEl.textContent.trim() : `Question ${w.questionId}`;
-    html +=
-      "<li style='margin-bottom:6px;'>" +
-      `<div>${qText}</div>` +
-      `<div>Your answer: <span style='color:#c0392b;'>${w.selected}</span> &nbsp;|&nbsp; ` +
-      `Correct answer: <span style='color:#1e8449;'>${w.correct}</span></div>` +
-      "</li>";
-  }
-  html +=
-    "</ul><p style='margin:6px 0;'>Tip: open the worked <em>Example</em> for this " +
-    "topic (button below), then reattempt the test.</p>";
+    if (qEl) {
+      qWrap.appendChild(qEl.cloneNode(true));
+    } else {
+      qWrap.textContent = "Question " + w.questionId;
+    }
+    li.appendChild(qWrap);
 
-  panel.innerHTML = html;
+    // Answers: the option values are informal math (e.g. x^2sin(x)); wrap them
+    // in \( ... \) and let MathJax typeset, matching the exercise's own style.
+    const aWrap = document.createElement("div");
+    const yours = document.createElement("span");
+    yours.style.color = "#c0392b";
+    yours.innerHTML = "\\(" + w.selected + "\\)";
+    const corr = document.createElement("span");
+    corr.style.color = "#1e8449";
+    corr.innerHTML = "\\(" + w.correct + "\\)";
+    aWrap.appendChild(document.createTextNode("Your answer: "));
+    aWrap.appendChild(yours);
+    aWrap.appendChild(document.createTextNode("  |  Correct answer: "));
+    aWrap.appendChild(corr);
+    li.appendChild(aWrap);
+
+    mathSpans.push(yours, corr);
+    ul.appendChild(li);
+  }
+  panel.appendChild(ul);
+
+  const tip = document.createElement("p");
+  tip.style.margin = "6px 0";
+  tip.innerHTML =
+    "Tip: open the worked <em>Example</em> for this topic (button below), " +
+    "then reattempt the test.";
+  panel.appendChild(tip);
 
   const resultMessage = dialog.querySelector("#resultMessage");
   if (resultMessage) {
     resultMessage.insertAdjacentElement("afterend", panel);
   } else {
     dialog.appendChild(panel);
+  }
+
+  // Typeset the answer spans (MathJax v2). The cloned questions are already
+  // rendered, so we only render the newly added \( ... \) answer spans.
+  if (window.MathJax && MathJax.Hub && MathJax.Hub.Queue) {
+    mathSpans.forEach(function (el) {
+      MathJax.Hub.Queue(["Typeset", MathJax.Hub, el]);
+    });
   }
 }
 
