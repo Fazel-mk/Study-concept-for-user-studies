@@ -79,8 +79,47 @@ column holds the number of wrong answers that triggered it), so you can count
 how often the intervention was delivered. The no-feedback (control) group never
 sees this.
 
+## Hypotheses
+
+**Primary**
+
+- **H1:** Participants who receive immediate feedback after each answer will
+  have higher first-attempt accuracy on subsequent questions than those who
+  receive no feedback.
+- **H0 (null):** No difference in subsequent first-attempt accuracy between the
+  feedback and no-feedback groups.
+
+*Rationale:* immediate corrective feedback lets learners adjust before the next
+item (formative-feedback / feedback-loop theory).
+
+**Secondary**
+
+- **H2 (learning over time):** The feedback group improves more across the
+  sequence of exercises than the no-feedback group.
+- **H3 (error correction):** After a wrong answer, feedback-group participants
+  are more likely to get the *next* question right than no-feedback participants
+  (direct test of "feedback affects the next answer").
+- **H4 (review intervention):** Within the feedback group, participants who
+  trigger the review section (≥2 wrong) do better on the following exercise than
+  comparable feedback participants who were not shown a review.
+- **H5 (topic dependence):** The feedback effect is larger for harder topics
+  (derivatives, quadratics) than for arithmetic, which may be at ceiling.
+
+**Competing predictions**
+
+- *Ceiling:* with 3 options and short exercises, both groups may score high,
+  washing out any difference.
+- *Reverse:* without a safety net, no-feedback participants may deliberate more,
+  narrowing or reversing the gap.
+
 ## Suggested analysis
 
-To test the hypothesis, compare first-attempt accuracy of question *N+1*
-between groups (and/or accuracy on later exercises), using the
-`isFirstAttempt = true` rows grouped by `group`.
+Use the `isFirstAttempt = true` rows grouped by `group`:
+
+- **H1 / H5:** compare group means of first-attempt accuracy (overall and per
+  topic) — independent-samples *t*-test or Mann–Whitney *U*.
+- **H2:** accuracy by exercise order × group (mixed ANOVA or regression with an
+  order × group interaction).
+- **H3:** condition next-item correctness on previous-item correctness × group.
+- **H4:** compare post-review exercise accuracy using the `__review_triggered__`
+  log rows to flag who saw a review.
