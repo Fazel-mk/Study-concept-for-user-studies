@@ -169,19 +169,52 @@ function checkAnswer(questionId, correctAnswer) {
 
   // ----- The experimental manipulation ----------------------------------
   if (FEEDBACK_ENABLED) {
-    // Feedback group: reveal correctness (original behaviour).
+    // Feedback group: reveal correctness with elaborated, encouraging wording
+    // rather than a bare "Correct"/"Incorrect".
     if (isCorrect) {
-      resultMessage.innerHTML = "Correct answer!";
+      resultMessage.innerHTML = praiseMessage(attemptNumber);
       resultMessage.style.color = "green";
     } else {
-      resultMessage.innerHTML = "Incorrect.";
-      resultMessage.style.color = "red";
+      resultMessage.innerHTML = encouragementMessage();
+      resultMessage.style.color = "#c0392b";
     }
   } else {
     // No-feedback group: confirm the answer was saved, reveal nothing.
     resultMessage.innerHTML = "Answer recorded.";
     resultMessage.style.color = "#444";
   }
+}
+
+// ----- Elaborated feedback wording (feedback group only) ----------------
+const PRAISE_MESSAGES = [
+  "Very good! That's the right answer.",
+  "Well done! That's correct.",
+  "Exactly right, nice work!",
+  "Correct, great job!",
+  "Spot on! That's the right answer.",
+];
+
+const ENCOURAGEMENT_MESSAGES = [
+  "Not quite yet. Take another look at the steps.",
+  "Almost there. Try working through it once more.",
+  "That's not right this time. Check the worked example if you need a hint.",
+  "Not correct yet. Re-read the question and give it another go.",
+];
+
+function pickMessage(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function praiseMessage(attemptNumber) {
+  // Acknowledge persistence when they get it right after a retry.
+  if (attemptNumber > 1) {
+    return "Well done for sticking with it, that's now correct!";
+  }
+  return pickMessage(PRAISE_MESSAGES);
+}
+
+function encouragementMessage() {
+  return pickMessage(ENCOURAGEMENT_MESSAGES);
 }
 
 //disableRadioButtons(options);
@@ -477,6 +510,128 @@ function showNextQuestionDiv(nextDivId, currentDivId) {
 
   const nextDiv = document.getElementById(nextDivId);
   nextDiv.style.display = 'block';
+
+  // Remember how far the learner got, for drop-out analysis.
+  studyProgress.lastQuestionReached = nextDivId;
+}
+
+/* =====================================================================
+   SKIP BUTTON
+   Learners may pass on a question instead of guessing. A skip is logged
+   as its own response category (selectedValue "SKIPPED") and is left out
+   of the accuracy measure, because it is never stored as a first attempt.
+   Buttons are injected at runtime so no exercise template needs editing.
+   ===================================================================== */
+function injectSkipButtons() {
+  const form = document.getElementById("exerciseForm");
+  if (!form) return; // not an exercise page
+
+  const questionDivs = form.querySelectorAll('div[id^="Q"]');
+  questionDivs.forEach(function (qDiv) {
+    if (qDiv.querySelector(".skip-button")) return;
+
+    // Derive the question id (q1, q2, ...) from the radio group in this div.
+    const radio = qDiv.querySelector('input[type="radio"]');
+    if (!radio) return;
+    const questionId = radio.name;
+
+    // Place the skip button next to this question's submit button.
+    const submitBtn = qDiv.querySelector("button");
+    if (!submitBtn) return;
+
+    const skipBtn = document.createElement("button");
+    skipBtn.type = "button";
+    skipBtn.className = "button gray skip-button";
+    skipBtn.textContent = "Skip question";
+    skipBtn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      skipQuestion(questionId, qDiv);
+    });
+
+    submitBtn.insertAdjacentElement("afterend", skipBtn);
+  });
+}
+
+function skipQuestion(questionId, qDiv) {
+  if (skippedQuestions[questionId]) return; // already skipped
+  skippedQuestions[questionId] = true;
+
+  logAttempt({
+    participantId: STUDY_PARTICIPANT_ID,
+    group: STUDY_GROUP,
+    page: currentPageName(),
+    questionId: questionId,
+    attemptNumber: "",
+    selectedValue: "SKIPPED",
+    correctValue: "",
+    isCorrect: "",
+    isFirstAttempt: "", // excluded from accuracy on purpose
+    secondsSinceStart: studySecondsSinceStart(),
+    timestamp: new Date().toISOString(),
+  });
+
+  const msg = document.querySelector(`#resultMessage_${questionId}`);
+  if (msg) {
+    msg.innerHTML = "Question skipped.";
+    msg.style.color = "#444";
+  }
+
+  // Move on: use this question's own "Next Question" button if it has one.
+  const nextBtn = Array.from(qDiv.querySelectorAll("button")).find(function (b) {
+    return /next question/i.test(b.textContent || "");
+  });
+  if (nextBtn) nextBtn.click();
+}
+
+/* =====================================================================
+   DROP-OUT TRACKING
+   Logs when a learner arrives on a page, how far they got, and when they
+   leave. Combined with the __exercise_complete__ markers this shows where
+   participants stopped and did not continue.
+   ===================================================================== */
+const studyProgress = {
+  lastQuestionReached: "Q1",
+  exitLogged: false,
+};
+
+const skippedQuestions = {};
+
+function logProgressEvent(kind) {
+  logAttempt({
+    participantId: STUDY_PARTICIPANT_ID,
+    group: STUDY_GROUP,
+    page: currentPageName(),
+    questionId: kind, // __page_enter__ / __page_exit__
+    attemptNumber: "",
+    selectedValue: studyProgress.lastQuestionReached,
+    correctValue: "",
+    isCorrect: "",
+    isFirstAttempt: "",
+    secondsSinceStart: studySecondsSinceStart(),
+    timestamp: new Date().toISOString(),
+  });
+}
+
+function logPageExitOnce() {
+  if (studyProgress.exitLogged) return;
+  studyProgress.exitLogged = true;
+  logProgressEvent("__page_exit__");
+}
+
+function initStudyTracking() {
+  if (!document.getElementById("exerciseForm")) return; // exercise pages only
+  logProgressEvent("__page_enter__");
+  injectSkipButtons();
+
+  // pagehide is more reliable than beforeunload (incl. mobile / tab close).
+  window.addEventListener("pagehide", logPageExitOnce);
+  window.addEventListener("beforeunload", logPageExitOnce);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initStudyTracking);
+} else {
+  initStudyTracking();
 }
 // Open next page
 function openPage(pagePath) {
