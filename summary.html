@@ -52,10 +52,10 @@
   </style>
 </head>
 <body>
-  <h1>My Study Results</h1>
+  <h1 id="pageTitle">Thank you for taking part</h1>
   <div class="meta" id="meta"></div>
 
-  <div class="bar">
+  <div class="bar" id="researcherBar" style="display:none">
     <button id="csvBtn">Download study data (CSV)</button>
     <button id="backBtn" class="secondary">Back to the study</button>
   </div>
@@ -97,16 +97,20 @@
     });
     var completedCount = Object.keys(completed).length;
 
-    // Never reveal correctness to the no-feedback group mid-study, or their
-    // remaining answers would be influenced. Reveal only once they are done
-    // (or when the researcher passes ?full=1).
-    var reveal = group !== "nofeedback" ||
-                 completedCount >= TOTAL_EXERCISES ||
-                 params.get("full") === "1";
+    // Participants only ever get the download. The per-attempt breakdown is
+    // for the researcher and is shown only with ?full=1.
+    var researcher = params.get("full") === "1";
+    var reveal = researcher;
 
-    document.getElementById("meta").textContent =
-      "Participant " + pid + "  |  group: " + (group || "not assigned") +
-      "  |  exercises completed: " + completedCount + " of " + TOTAL_EXERCISES;
+    document.getElementById("meta").textContent = researcher
+      ? "Participant " + pid + "  |  group: " + (group || "not assigned") +
+        "  |  exercises completed: " + completedCount + " of " + TOTAL_EXERCISES
+      : "Participant " + pid;
+
+    if (researcher) {
+      document.getElementById("pageTitle").textContent = "Study Results (researcher view)";
+      document.getElementById("researcherBar").style.display = "";
+    }
 
     function esc(s) {
       return String(s === undefined || s === null ? "" : s)
@@ -136,6 +140,19 @@
           "participation cannot be counted.</p>" +
           '<button id="csvBtnBig">Download my results file</button>' +
           "</div>";
+      } else if (!researcher) {
+        html += '<div class="done">' +
+          "<h2>Thank you for taking part</h2>" +
+          "<p>Please download your results file and send it to the researcher " +
+          "who gave you this link.</p>" +
+          '<button id="csvBtnBig">Download my results file</button>' +
+          "</div>";
+      }
+
+      // Participants see only the thank-you and the download button.
+      if (!researcher) {
+        content.innerHTML = html;
+        return;
       }
 
       if (!reveal) {

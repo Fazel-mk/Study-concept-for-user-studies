@@ -107,21 +107,16 @@ row when the learner leaves (via `pagehide`/`beforeunload`). The
 exactly where a participant stopped and whether they continued, so drop-out can
 be compared between groups.
 
-## Per-participant summary (`summary.html`)
+## Finish page (`summary.html`)
 
-`summary.html` shows **every attempt for every exercise** for the participant on
-that device: question, attempt number, the answer given, the correct answer,
-correct/wrong/skipped, and the time. Each exercise gets its own table plus a
-per-exercise tally, and there is an overall total with first-attempt accuracy.
-The same CSV download is available from this page.
+After the last exercise the participant lands on `summary.html`. They see only a
+thank-you message and a **Download my results file** button, plus the reminder to
+email the file to the researcher. **Participants never see their results.**
 
-It is reachable from the **View all my results** button in the results dialog,
-or directly at `summary.html`.
-
-To protect the manipulation, correctness is hidden from the **no-feedback**
-group until they have completed all 8 exercises. Add `?full=1`
-(`summary.html?full=1`) to see everything regardless. The exported CSV always
-contains the full data.
+Add `?full=1` for the **researcher view** (`summary.html?full=1`): every attempt
+for every exercise (question, attempt number, answer given, correct answer,
+result, time), a per-exercise tally, and overall first-attempt accuracy. Use this
+on a test device to confirm recording works before launching.
 
 ## Analysis script
 

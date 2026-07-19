@@ -520,25 +520,11 @@ function addDownloadButton(dialog) {
   btn.style.marginLeft = "8px";
   btn.addEventListener("click", downloadStudyData);
 
-  // Link to the full per-attempt summary of every exercise so far.
-  const summaryBtn = document.createElement("button");
-  summaryBtn.id = "viewSummaryButton";
-  summaryBtn.type = "button";
-  summaryBtn.className = "button gray";
-  summaryBtn.textContent = "View all my results";
-  summaryBtn.style.marginLeft = "8px";
-  summaryBtn.addEventListener("click", function () {
-    const inTemplates = window.location.pathname.indexOf("/templates/") !== -1;
-    window.location.href = (inTemplates ? "../" : "") + "summary.html";
-  });
-
   const closeButton = dialog.querySelector("#closeButton");
   if (closeButton) {
     closeButton.insertAdjacentElement("afterend", btn);
-    btn.insertAdjacentElement("afterend", summaryBtn);
   } else {
     dialog.appendChild(btn);
-    dialog.appendChild(summaryBtn);
   }
 }
 
