@@ -175,3 +175,75 @@ height: "10";
   height: auto;
   width: auto;
 }
+
+/* --------------------------------------------------------------------
+   Exercise layout fix
+
+   Previously the exercise pages wrapped everything in a position:fixed
+   container and .centered was also fixed and capped at 450px. That left the
+   exercise box only ~280px wide, so the button row (Check & Submit / Skip /
+   Next Question) overflowed and had to be scrolled sideways, and tall content
+   could not be scrolled to at all. Put the content back into normal document
+   flow, give it a comfortable width, and let the buttons wrap.
+   -------------------------------------------------------------------- */
+
+/* The inline position:fixed wrapper on the exercise templates */
+div[style*="position: fixed"] {
+  position: static !important;
+  width: auto !important;
+}
+
+.centered {
+  position: static;
+  top: auto;
+  left: auto;
+  transform: none;
+  width: auto;
+  max-width: 900px;
+  margin: 0 auto 40px auto;
+  padding: 10px 20px 20px 20px;
+  box-sizing: border-box;
+}
+
+.exercise-box {
+  width: 100%;
+  max-width: 780px;
+  box-sizing: border-box;
+  overflow-x: auto; /* fallback for very wide formulas */
+}
+
+/* Let the question text and the row of buttons wrap onto the next line */
+.exercise-box form,
+.exercise-box form div,
+.exercise-box form p,
+.exercise-box form label {
+  white-space: normal;
+}
+
+.exercise-box .button {
+  margin: 8px 8px 0 0;
+  vertical-align: middle;
+  max-width: 100%;
+}
+
+/* Narrow screens (participants take part on their own devices) */
+@media (max-width: 900px) {
+  .centered {
+    max-width: 100%;
+    padding: 10px 12px 20px 12px;
+  }
+  .exercise-box {
+    padding: 5px 12px 10px 12px;
+  }
+}
+
+/* Phones: let the buttons size to their text so they wrap instead of
+   pushing the box wider than the screen. */
+@media (max-width: 620px) {
+  .exercise-box .button {
+    width: auto;
+    min-width: 0;
+    padding: 0 12px;
+    margin: 6px 6px 0 0;
+  }
+}
