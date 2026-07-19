@@ -79,6 +79,46 @@ column holds the number of wrong answers that triggered it), so you can count
 how often the intervention was delivered. The no-feedback (control) group never
 sees this.
 
+## Elaborated feedback (feedback group only)
+
+The feedback group no longer sees a bare "Correct"/"Incorrect". It now gets
+varied, encouraging wording, e.g. "Very good! That's the right answer.",
+"Almost there. Try working through it once more.", and a special message when a
+learner gets it right after a retry. The control group is unchanged and still
+only sees the neutral "Answer recorded", so the feedback vs no-feedback
+comparison is preserved. Wording lives in `PRAISE_MESSAGES` /
+`ENCOURAGEMENT_MESSAGES` in `static/script.js`.
+
+## Skip button
+
+Every question gets a **Skip question** button, injected at runtime by
+`injectSkipButtons()` (no exercise template needs editing). A skip is logged as
+its own response category with `selectedValue = SKIPPED` and an empty
+`isFirstAttempt`, so **skips are excluded from the accuracy measure** rather
+than counted as wrong. This reduces forced-guessing noise and lets you measure
+avoidance behaviour per group.
+
+## Drop-out tracking
+
+Each exercise page logs a `__page_enter__` row on arrival and a `__page_exit__`
+row when the learner leaves (via `pagehide`/`beforeunload`). The
+`selectedValue` column of those rows holds the furthest question reached
+(`Q1`/`Q2`/`Q3`). Together with the `__exercise_complete__` markers this shows
+exactly where a participant stopped and whether they continued, so drop-out can
+be compared between groups.
+
+## Analysis script
+
+`analysis/bkt_analysis.py` reads the exported CSVs and reports first-attempt
+accuracy (mean, SD, Welch t-test, Cohen's d), skip behaviour, drop-out, and a
+**Bayesian Knowledge Tracing** fit per topic and group (initial knowledge,
+learning rate, slip, guess, and final mastery). Standard library only; SciPy is
+used for exact p-values if available.
+
+```bash
+python3 analysis/bkt_analysis.py data/*.csv     # or a folder of CSVs
+```
+
 ## Hypotheses
 
 **Primary**
