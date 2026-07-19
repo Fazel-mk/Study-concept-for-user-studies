@@ -183,6 +183,30 @@ function checkAnswer(questionId, correctAnswer) {
     resultMessage.innerHTML = "Answer recorded.";
     resultMessage.style.color = "#444";
   }
+
+  // Once an answer is in, the only thing left to do is move on.
+  lockQuestion(questionId);
+}
+
+// After a question is answered (or skipped) hide its "Check & Submit" and
+// "Skip question" buttons and freeze the options, so the learner is left with
+// just the forward button (Next Question, or Result on the last one).
+function lockQuestion(questionId) {
+  const radio = document.querySelector(`input[name="${questionId}"]`);
+  if (!radio) return;
+  const qDiv = radio.closest('div[id^="Q"]');
+  if (!qDiv) return;
+
+  qDiv.querySelectorAll(`input[name="${questionId}"]`).forEach(function (r) {
+    r.disabled = true;
+  });
+
+  qDiv.querySelectorAll("button").forEach(function (b) {
+    const label = (b.textContent || "").trim().toLowerCase();
+    if (label.startsWith("check") || label.startsWith("skip")) {
+      b.style.display = "none";
+    }
+  });
 }
 
 // ----- Elaborated feedback wording (feedback group only) ----------------
@@ -575,6 +599,8 @@ function skipQuestion(questionId, qDiv) {
     msg.innerHTML = "Question skipped.";
     msg.style.color = "#444";
   }
+
+  lockQuestion(questionId);
 
   // Move on: use this question's own "Next Question" button if it has one.
   const nextBtn = Array.from(qDiv.querySelectorAll("button")).find(function (b) {
