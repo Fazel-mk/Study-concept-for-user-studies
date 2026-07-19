@@ -39,6 +39,16 @@
     }
     .totals { background: #eef4fb; border-left: 4px solid #2e6fb7;
       padding: 10px 14px; border-radius: 6px; font-size: 14px; }
+    .done {
+      background: #e8f6ec; border: 2px solid #1e8449; border-radius: 8px;
+      padding: 16px 18px; margin-bottom: 18px;
+    }
+    .done h2 { margin: 0 0 6px; font-size: 18px; color: #1e8449; }
+    .done p { margin: 6px 0; font-size: 14px; }
+    .done button {
+      background: #1e8449; font-size: 16px; padding: 12px 20px; margin-top: 8px;
+    }
+    .step { font-weight: bold; }
   </style>
 </head>
 <body>
@@ -113,6 +123,20 @@
       }
 
       var html = "";
+
+      // The study is finished: make the download-and-send step unmissable.
+      if (completedCount >= TOTAL_EXERCISES) {
+        html += '<div class="done">' +
+          "<h2>You have finished the study. Thank you!</h2>" +
+          '<p class="step">One last step, please:</p>' +
+          "<p>1. Click the green button below to download your results file.</p>" +
+          "<p>2. Send that file to the researcher who gave you this link.</p>" +
+          "<p>Your file is named <code>study_" + esc(pid) + "_" + esc(group) +
+          ".csv</code> and contains only your answers. Without it your " +
+          "participation cannot be counted.</p>" +
+          '<button id="csvBtnBig">Download my results file</button>' +
+          "</div>";
+      }
 
       if (!reveal) {
         html += '<div class="notice">Your answers are recorded below. ' +
@@ -200,7 +224,7 @@
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
     }
 
-    document.getElementById("csvBtn").addEventListener("click", function () {
+    function downloadCsv() {
       var headers = ["participantId","group","page","questionId","attemptNumber",
         "selectedValue","correctValue","isCorrect","isFirstAttempt",
         "secondsSinceStart","timestamp"];
@@ -215,13 +239,19 @@
       a.download = "study_" + pid + "_" + (group || "data") + ".csv";
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    });
+    }
+
+    document.getElementById("csvBtn").addEventListener("click", downloadCsv);
 
     document.getElementById("backBtn").addEventListener("click", function () {
       window.location.href = "index.html";
     });
 
     render();
+
+    // The big finish button only exists once the study is complete.
+    var bigBtn = document.getElementById("csvBtnBig");
+    if (bigBtn) bigBtn.addEventListener("click", downloadCsv);
   </script>
 </body>
 </html>
