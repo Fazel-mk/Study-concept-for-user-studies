@@ -220,10 +220,17 @@ div[style*="position: fixed"] {
   white-space: normal;
 }
 
+/* Buttons have a fixed 125px width, which clipped longer labels such as
+   "Finish & download my results". Let them grow to fit their text while
+   keeping the usual width as a minimum so short buttons still line up. */
 .exercise-box .button {
   margin: 8px 8px 0 0;
   vertical-align: middle;
   max-width: 100%;
+  width: auto;
+  min-width: 125px;
+  padding: 0 12px;
+  box-sizing: border-box;
 }
 
 /* Narrow screens (participants take part on their own devices) */
