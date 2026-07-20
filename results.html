@@ -64,6 +64,7 @@
       <select id="metricSelect">
         <option value="accuracy">First-attempt accuracy (proportion correct)</option>
         <option value="correctCount">Correct answers per exercise (count)</option>
+        <option value="mastery">BKT estimated mastery (per participant)</option>
       </select>
     </div>
     <div class="hint">
@@ -80,6 +81,9 @@
 
   <h2>Summary statistics</h2>
   <div id="tableWrap"></div>
+
+  <h2>Bayesian Knowledge Tracing</h2>
+  <div id="bktWrap"></div>
 
   <script>
     const GROUPS = ["feedback", "nofeedback"];
@@ -161,6 +165,130 @@
       return out;
     }
 
+    // ---------- Bayesian Knowledge Tracing ----------
+    // Latent P(knows the skill) is revised after every answer with Bayes' rule,
+    // then a learning step is applied. The four parameters (initial knowledge,
+    // learning rate, slip, guess) are fitted per topic and group by maximising
+    // the likelihood of the observed correct/incorrect sequences.
+    const TOPIC_OF_PAGE = {
+      "addition_exercise.html": "arithmetic",
+      "subtraction_exercise.html": "arithmetic",
+      "multiplication_Exercise.html": "arithmetic",
+      "division_exercise.html": "arithmetic",
+      "linear_exercise.html": "algebra",
+      "quadratic_exercise.html": "algebra",
+      "deri_exercise1.html": "derivatives",
+      "deri_exercise2.html": "derivatives",
+    };
+
+    function buildSequences() {
+      // (group|topic) -> [{ pid, seq: [true/false, ...] }]
+      const ordered = {};   // pid|topic -> [{t, correct}]
+      const groupOf = {};
+      for (const r of rows) {
+        const qid = r.questionId || "";
+        if (qid.indexOf("__") === 0) continue;
+        if (!isTrue(r.isFirstAttempt)) continue;
+        const topic = TOPIC_OF_PAGE[r.page];
+        if (!topic) continue;
+        const pid = r.participantId || "(unknown)";
+        const group = (r.group || "").trim();
+        if (GROUPS.indexOf(group) === -1) continue;
+        groupOf[pid] = group;
+        const k = pid + "|" + topic;
+        (ordered[k] = ordered[k] || []).push({
+          t: r.timestamp || "", correct: isTrue(r.isCorrect),
+        });
+      }
+      const out = {};
+      for (const k in ordered) {
+        const [pid, topic] = k.split("|");
+        ordered[k].sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+        const key = groupOf[pid] + "|" + topic;
+        (out[key] = out[key] || []).push({
+          pid: pid, seq: ordered[k].map(o => o.correct),
+        });
+      }
+      return out;
+    }
+
+    function bktLogLikelihood(seqs, L0, T, S, G) {
+      let total = 0;
+      for (const s of seqs) {
+        let L = L0;
+        for (const correct of s) {
+          const pCorrect = L * (1 - S) + (1 - L) * G;
+          const pObs = correct ? pCorrect : 1 - pCorrect;
+          if (pObs <= 1e-12) return -Infinity;
+          total += Math.log(pObs);
+          // Bayes update: P(knew it | what we just saw)
+          const num = correct ? L * (1 - S) : L * S;
+          const den = correct ? pCorrect : 1 - pCorrect;
+          const post = den > 1e-12 ? num / den : L;
+          L = post + (1 - post) * T; // learning step
+        }
+      }
+      return total;
+    }
+
+    function fitBKT(seqs) {
+      if (!seqs.length) return null;
+      let best = null;
+      for (let i = 1; i < 20; i += 2) {          // L0 0.05..0.95
+        for (let t = 0; t <= 10; t++) {          // T  0.00..0.50
+          for (let s = 1; s <= 8; s++) {         // S  0.05..0.40
+            for (let g = 1; g <= 9; g++) {       // G  0.05..0.45
+              const L0 = i / 20, T = t / 20, S = s / 20, G = g / 20;
+              const ll = bktLogLikelihood(seqs, L0, T, S, G);
+              if (!best || ll > best.ll) best = { ll, L0, T, S, G };
+            }
+          }
+        }
+      }
+      return best;
+    }
+
+    function finalMastery(seq, p) {
+      let L = p.L0;
+      for (const correct of seq) {
+        const pCorrect = L * (1 - p.S) + (1 - L) * p.G;
+        const num = correct ? L * (1 - p.S) : L * p.S;
+        const den = correct ? pCorrect : 1 - pCorrect;
+        const post = den > 1e-12 ? num / den : L;
+        L = post + (1 - post) * p.T;
+      }
+      return L;
+    }
+
+    function computeBKT() {
+      const seqs = buildSequences();
+      const fits = {};
+      for (const key in seqs) {
+        const list = seqs[key];
+        if (list.length < 2) { fits[key] = { n: list.length, fit: null }; continue; }
+        fits[key] = { n: list.length, fit: fitBKT(list.map(o => o.seq)), list: list };
+      }
+      return { seqs, fits };
+    }
+
+    // Per-participant mastery: average final mastery across the topics they did.
+    function masteryPerParticipant(bkt) {
+      const perP = {};
+      const groupOf = {};
+      for (const key in bkt.seqs) {
+        const [group, topic] = key.split("|");
+        const f = bkt.fits[key];
+        if (!f || !f.fit) continue;
+        for (const o of bkt.seqs[key]) {
+          groupOf[o.pid] = group;
+          (perP[o.pid] = perP[o.pid] || []).push(finalMastery(o.seq, f.fit));
+        }
+      }
+      const out = { feedback: [], nofeedback: [] };
+      for (const pid in perP) out[groupOf[pid]].push(mean(perP[pid]));
+      return out;
+    }
+
     function mean(a) { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0; }
     function std(a) {
       if (a.length < 2) return 0;
@@ -172,7 +300,10 @@
     // ---------- Rendering ----------
     function render() {
       const metric = document.getElementById("metricSelect").value;
-      const perP = computePerParticipant(metric);
+      const bkt = rows.length ? computeBKT() : { seqs: {}, fits: {} };
+      const perP = metric === "mastery"
+        ? masteryPerParticipant(bkt)
+        : computePerParticipant(metric);
       const stats = GROUPS.map(g => ({
         group: g,
         n: perP[g].length,
@@ -183,10 +314,54 @@
 
       drawChart(stats, metric);
       drawTable(stats, metric);
+      drawBKT(bkt);
+    }
+
+    function drawBKT(bkt) {
+      const wrap = document.getElementById("bktWrap");
+      const topics = [...new Set(Object.keys(bkt.fits).map(k => k.split("|")[1]))].sort();
+      if (!topics.length) {
+        wrap.innerHTML = '<p class="empty">Load data to fit the knowledge-tracing model.</p>';
+        return;
+      }
+
+      let html = "<table><tr><th>Topic</th><th>Group</th><th>n</th>" +
+        "<th>Initial knowledge (L0)</th><th>Learning rate (T)</th>" +
+        "<th>Slip (S)</th><th>Guess (G)</th><th>Final mastery</th></tr>";
+
+      for (const topic of topics) {
+        for (const g of GROUPS) {
+          const f = bkt.fits[g + "|" + topic];
+          const key = g === "feedback" ? "feedback-key" : "nofeedback-key";
+          if (!f) continue;
+          if (!f.fit) {
+            html += `<tr><td>${topic}</td><td class="${key}">${LABELS[g]}</td>` +
+              `<td>${f.n}</td><td colspan="5" class="empty">needs at least 2 participants</td></tr>`;
+            continue;
+          }
+          const m = mean(f.list.map(o => finalMastery(o.seq, f.fit)));
+          html += `<tr><td>${topic}</td><td class="${key}">${LABELS[g]}</td><td>${f.n}</td>` +
+            `<td>${f.fit.L0.toFixed(2)}</td><td>${f.fit.T.toFixed(2)}</td>` +
+            `<td>${f.fit.S.toFixed(2)}</td><td>${f.fit.G.toFixed(2)}</td>` +
+            `<td>${(m * 100).toFixed(1)}%</td></tr>`;
+        }
+      }
+      html += "</table>";
+      html += '<p class="hint">Knowledge is re-estimated after every answer with ' +
+        "Bayes' rule, then a learning step is applied. The comparison that matters " +
+        "is the <strong>learning rate (T)</strong> between groups, which is the " +
+        "test for H2.<br>" +
+        "<em>Read with care:</em> each topic only has 6 to 12 answers per learner, " +
+        "so the four parameters are weakly identified and can sit at the edge of " +
+        "the search range. Final mastery in particular tends to saturate near 100% " +
+        "for both groups and is a poor discriminator on short sequences. Treat " +
+        "these fits as indicative and report first-attempt accuracy as the primary " +
+        "outcome.</p>";
+      wrap.innerHTML = html;
     }
 
     function fmt(x, metric) {
-      if (metric === "accuracy") return (x * 100).toFixed(1) + "%";
+      if (metric === "accuracy" || metric === "mastery") return (x * 100).toFixed(1) + "%";
       return x.toFixed(2);
     }
 
@@ -195,7 +370,7 @@
       const plotW = W - padL - padR, plotH = H - padT - padB;
 
       let yMax;
-      if (metric === "accuracy") yMax = 1;
+      if (metric === "accuracy" || metric === "mastery") yMax = 1;
       else {
         const top = Math.max(1, ...stats.map(s => s.mean + s.std));
         yMax = Math.ceil(top);
@@ -212,7 +387,7 @@
       let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
       // title
       svg += `<text x="${W / 2}" y="22" text-anchor="middle" font-size="15" font-weight="bold">` +
-        (metric === "accuracy" ? "First-attempt accuracy (mean ± SD)" : "Correct answers / exercise (mean ± SD)") +
+        (metric === "accuracy" ? "First-attempt accuracy (mean ± SD)" : metric === "mastery" ? "BKT estimated mastery (mean ± SD)" : "Correct answers / exercise (mean ± SD)") +
         `</text>`;
 
       // y gridlines + labels
@@ -221,7 +396,7 @@
         const val = (yMax / ticks) * t;
         const y = yToPx(val);
         svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#eee" />`;
-        const lbl = metric === "accuracy" ? Math.round(val * 100) + "%" : val.toFixed(1);
+        const lbl = (metric === "accuracy" || metric === "mastery") ? Math.round(val * 100) + "%" : val.toFixed(1);
         svg += `<text x="${padL - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#666">${lbl}</text>`;
       }
       // axes
@@ -238,8 +413,12 @@
         const barH = padT + plotH - yTop;
         svg += `<rect x="${x}" y="${yTop}" width="${barW}" height="${barH}" fill="${COLORS[s.group]}" opacity="0.85" rx="3" />`;
 
-        // value label above bar
-        svg += `<text x="${cx}" y="${yTop - 8}" text-anchor="middle" font-size="13" font-weight="bold">${fmt(s.mean, metric)}</text>`;
+        // Value label: above the bar, or inside it when the bar is tall enough
+        // that an outside label would collide with the title.
+        const labelAbove = yTop - 8 > padT + 6;
+        svg += `<text x="${cx}" y="${labelAbove ? yTop - 8 : yTop + 18}" ` +
+          `text-anchor="middle" font-size="13" font-weight="bold" ` +
+          `fill="${labelAbove ? "#222" : "#fff"}">${fmt(s.mean, metric)}</text>`;
 
         // error bar (±1 SD), clamped to [0, yMax]
         if (s.n >= 1) {
@@ -307,12 +486,18 @@
 
     // Generate realistic multi-participant data for previewing/presenting.
     function generateDemoData() {
-      const pages = ["addition_exercise.html", "subtraction_exercise.html", "multiplication_Exercise.html"];
+      const pages = [
+        "addition_exercise.html", "subtraction_exercise.html",
+        "multiplication_Exercise.html", "division_exercise.html",
+        "linear_exercise.html", "quadratic_exercise.html",
+        "deri_exercise1.html", "deri_exercise2.html",
+      ];
       const qPerPage = 3;
-      // feedback group tends to do a bit better; both have spread.
+      // Both groups start at a similar level; the feedback group is simulated
+      // as learning faster, so the knowledge-tracing fit has something to find.
       const config = {
-        feedback:   { n: 18, meanP: 0.78, spread: 0.12 },
-        nofeedback: { n: 18, meanP: 0.62, spread: 0.14 },
+        feedback:   { n: 18, start: 0.45, spread: 0.10, learn: 0.13 },
+        nofeedback: { n: 18, start: 0.45, spread: 0.10, learn: 0.04 },
       };
       const demo = [];
       let pidNum = 1;
@@ -324,11 +509,12 @@
         const cfg = config[group];
         for (let i = 0; i < cfg.n; i++) {
           const pid = "DEMO-" + group.slice(0, 2).toUpperCase() + "-" + (pidNum++);
-          const pCorrect = clamp(cfg.meanP + randNorm() * cfg.spread);
+          let pCorrect = clamp(cfg.start + randNorm() * cfg.spread);
           let secs = 5;
           for (const page of pages) {
             for (let q = 1; q <= qPerPage; q++) {
               const correct = Math.random() < pCorrect;
+              pCorrect = pCorrect + (1 - pCorrect) * cfg.learn; // learning
               secs += 8 + Math.random() * 20;
               demo.push({
                 participantId: pid,

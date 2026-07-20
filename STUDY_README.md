@@ -59,8 +59,15 @@ the comparison:
   select all of them at once.
 - The bar chart shows each group's **mean** with **±1 SD error bars**, and a
   table lists n, mean, and standard deviation per group.
-- Two metrics are available: **first-attempt accuracy** (proportion correct)
-  and **correct answers per exercise** (count).
+- Three metrics are available: **first-attempt accuracy** (proportion correct),
+  **correct answers per exercise** (count), and **BKT estimated mastery**.
+- A **Bayesian Knowledge Tracing** table fits the model per topic and group in
+  the browser (initial knowledge L0, learning rate T, slip S, guess G, final
+  mastery). The between-group comparison of **T** is the test for H2. With only
+  6 to 12 answers per topic the parameters are weakly identified and mastery
+  saturates, so treat the fits as indicative and keep first-attempt accuracy as
+  the primary outcome. The same model is available offline in
+  `analysis/bkt_analysis.py`.
 
 SD is the sample standard deviation (n−1); a group needs ≥2 participants for a
 non-zero error bar.
