@@ -453,13 +453,41 @@
 
     function setStatus(msg) { document.getElementById("status").textContent = msg; }
 
+    // Identity of a single logged row, so the same data can be loaded twice
+    // (re-clicking the button, re-selecting a file) without being counted twice.
+    function rowKey(r) {
+      return [r.participantId, r.timestamp, r.page, r.questionId,
+              r.attemptNumber, r.selectedValue].join("");
+    }
+
+    let seenKeys = new Set();
+
+    function addRows(newRows) {
+      let added = 0, duplicates = 0;
+      for (const r of newRows) {
+        const k = rowKey(r);
+        if (seenKeys.has(k)) { duplicates++; continue; }
+        seenKeys.add(k);
+        rows.push(r);
+        added++;
+      }
+      return { added, duplicates };
+    }
+
+    function resetRows() {
+      rows = [];
+      seenKeys = new Set();
+    }
+
     // ---------- Data sources ----------
     document.getElementById("useLocalBtn").addEventListener("click", () => {
       let log;
       try { log = JSON.parse(localStorage.getItem("studyLog") || "[]"); }
       catch (e) { log = []; }
-      rows = rows.concat(log);
-      setStatus(`Loaded ${log.length} rows from this browser. Total rows: ${rows.length}.`);
+      const res = addRows(log);
+      setStatus(`This browser: ${res.added} new rows added` +
+        (res.duplicates ? `, ${res.duplicates} already loaded (skipped)` : "") +
+        `. Total rows: ${rows.length}.`);
       render();
     });
 
@@ -467,15 +495,18 @@
       const files = Array.from(ev.target.files || []);
       let pending = files.length;
       if (!pending) return;
-      let added = 0;
+      let added = 0, dupes = 0;
       files.forEach(file => {
         const reader = new FileReader();
         reader.onload = () => {
           const parsed = parseCSV(String(reader.result));
-          rows = rows.concat(parsed);
-          added += parsed.length;
+          const res = addRows(parsed);
+          added += res.added;
+          dupes += res.duplicates;
           if (--pending === 0) {
-            setStatus(`Loaded ${added} rows from ${files.length} file(s). Total rows: ${rows.length}.`);
+            setStatus(`Loaded ${added} new rows from ${files.length} file(s)` +
+              (dupes ? `, ${dupes} duplicate rows skipped` : "") +
+              `. Total rows: ${rows.length}.`);
             render();
           }
         };
@@ -544,14 +575,16 @@
     }
 
     document.getElementById("demoBtn").addEventListener("click", () => {
+      resetRows();
       const demo = generateDemoData();
-      rows = rows.concat(demo);
-      setStatus(`Loaded ${demo.length} demo rows (36 simulated participants). Total rows: ${rows.length}.`);
+      addRows(demo);
+      setStatus(`Replaced everything with ${demo.length} demo rows ` +
+        `(36 simulated participants).`);
       render();
     });
 
     document.getElementById("clearBtn").addEventListener("click", () => {
-      rows = [];
+      resetRows();
       setStatus("Cleared all loaded data.");
       render();
     });
